@@ -1,4 +1,4 @@
-# PRD: Mutual Fund FAQ RAG Chatbot (Class Demo)
+# PRD: Mutual Fund FAQ RAG Chatbot
 
 ## 1. Summary
 A small, facts-only RAG (Retrieval-Augmented Generation) chatbot that answers factual questions about a fixed set of HDFC mutual fund schemes — expense ratio, exit load, minimum SIP, ELSS lock-in, riskometer, benchmark, and how to download statements — using only official public scheme pages as its knowledge source. Every answer must cite exactly one source link. The bot must refuse opinion/advice questions (e.g., "should I buy X?").
