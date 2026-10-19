@@ -277,6 +277,72 @@ def test_startup_checks_flags_a_missing_llm(monkeypatch):
     assert any("LLM_API_KEY" in message for message in errors)
 
 
+def test_startup_builds_a_missing_index_once_with_the_supplied_embedder(monkeypatch, tmp_path):
+    class EmptyThenBuiltStore:
+        records = 0
+
+        def count(self):
+            return self.records
+
+    class TestEmbedder:
+        model = "local-test-model"
+
+    store = EmptyThenBuiltStore()
+    calls = []
+
+    def fake_ingest(embedder, **kwargs):
+        calls.append((embedder, kwargs))
+        store.records = 1
+
+    config = replace(
+        CONFIG,
+        DOCS_DIR=str(tmp_path / "documents"),
+        CHROMA_DIR=str(tmp_path / "chroma"),
+        LLM_API_KEY="test-key",
+        LLM_BACKEND="hosted",
+    )
+    embedder = TestEmbedder()
+    monkeypatch.setattr("ragchat.pipeline.CONFIG", config)
+    monkeypatch.setattr("ragchat.pipeline.VectorStore", lambda: store)
+    monkeypatch.setattr("ragchat.pipeline.run_ingest", fake_ingest)
+    monkeypatch.setattr("ragchat.pipeline.get_llm", lambda: ScriptedLLM())
+    monkeypatch.setattr("ragchat.pipeline.manifest_warnings", lambda **kwargs: [])
+
+    assert startup_checks(build_missing_index=True, embedder=embedder) == []
+    assert startup_checks(build_missing_index=True, embedder=embedder) == []
+    assert len(calls) == 1
+    assert calls[0][0] is embedder
+    assert calls[0][1]["docs_dir"] == config.docs_path
+    assert calls[0][1]["chroma_dir"] == config.chroma_path
+
+
+def test_startup_reports_a_local_index_build_failure(monkeypatch, tmp_path):
+    class EmptyStore:
+        def count(self):
+            return 0
+
+    config = replace(
+        CONFIG,
+        DOCS_DIR=str(tmp_path / "documents"),
+        CHROMA_DIR=str(tmp_path / "chroma"),
+        LLM_API_KEY="test-key",
+        LLM_BACKEND="hosted",
+    )
+
+    def failed_ingest(*args, **kwargs):
+        raise RuntimeError("test build failure")
+
+    monkeypatch.setattr("ragchat.pipeline.CONFIG", config)
+    monkeypatch.setattr("ragchat.pipeline.VectorStore", EmptyStore)
+    monkeypatch.setattr("ragchat.pipeline.run_ingest", failed_ingest)
+    monkeypatch.setattr("ragchat.pipeline.get_llm", lambda: ScriptedLLM())
+
+    issues = startup_checks(build_missing_index=True)
+    assert issues == [
+        ("error", f"Could not build the local vector index from {config.docs_path}: test build failure")
+    ]
+
+
 def test_startup_checks_returns_level_message_pairs():
     for level, message in startup_checks():
         assert level in {"error", "warning"}

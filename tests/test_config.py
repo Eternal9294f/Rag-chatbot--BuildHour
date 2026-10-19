@@ -44,3 +44,32 @@ def test_config_print_masks_secrets():
     for name, value in CONFIG.as_dict().items():
         if any(marker in name.upper() for marker in ("KEY", "TOKEN", "SECRET", "PASSWORD")):
             assert value in ("***", ""), f"{name} leaked a raw value: {value!r}"
+
+
+def test_streamlit_secrets_supply_provider_settings(monkeypatch):
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+    config = load_config(
+        secrets={
+            "LLM_API_KEY": "cloud-key",
+            "LLM_BASE_URL": "https://example.test/v1",
+            "LLM_MODEL": "example-model",
+            "LLM_TEMPERATURE": 0.4,
+        }
+    )
+    assert config.LLM_API_KEY == "cloud-key"
+    assert config.LLM_BASE_URL == "https://example.test/v1"
+    assert config.LLM_MODEL == "example-model"
+    assert config.LLM_TEMPERATURE == 0.4
+
+
+def test_load_config_reads_streamlit_secrets(monkeypatch):
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.setattr("streamlit.secrets", {"LLM_API_KEY": "cloud-key"})
+    assert load_config().LLM_API_KEY == "cloud-key"
+
+
+def test_environment_values_take_precedence_over_streamlit_secrets(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "local-env-key")
+    config = load_config(secrets={"LLM_API_KEY": "cloud-key"})
+    assert config.LLM_API_KEY == "local-env-key"

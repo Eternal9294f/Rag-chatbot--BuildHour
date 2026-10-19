@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 
@@ -67,10 +68,24 @@ def _is_secret(name: str) -> bool:
     return any(marker in name.upper() for marker in _SECRET_MARKERS)
 
 
-def _read(name: str, default: object) -> object:
+def _streamlit_secrets() -> dict[str, object]:
+    import streamlit as st
+    from streamlit.errors import StreamlitSecretNotFoundError
+
+    try:
+        return dict(st.secrets)
+    except StreamlitSecretNotFoundError:
+        return {}
+
+
+def _read(name: str, default: object, secrets: Mapping[str, object]) -> object:
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
+        raw = secrets.get(name, default)
+    if raw is None or (isinstance(raw, str) and raw.strip() == ""):
         return default
+    if isinstance(raw, str):
+        raw = raw.strip()
     if name in INT_KEYS:
         return int(raw)
     if name in FLOAT_KEYS:
@@ -137,8 +152,9 @@ class Config:
         return "hosted" if self.LLM_API_KEY else "local"
 
 
-def load_config() -> Config:
-    kwargs = {name: _read(name, default) for name, default in DEFAULTS.items()}
+def load_config(secrets: Mapping[str, object] | None = None) -> Config:
+    secret_values = _streamlit_secrets() if secrets is None else secrets
+    kwargs = {name: _read(name, default, secret_values) for name, default in DEFAULTS.items()}
     config = Config(**kwargs)
     if not config.EMBEDDING_MODEL:
         default_model = HOSTED_DEFAULT_MODEL if config.resolved_embedding_backend == "hosted" else LOCAL_DEFAULT_MODEL

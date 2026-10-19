@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import time
 
-from .config import CONFIG
-from .embedder import get_embedder
+from .config import CONFIG, LOCAL_DEFAULT_MODEL
+from .embedder import LocalEmbedder, get_embedder
 from .errors import ConfigurationError, IndexMissingError, RagChatError
 from .generator import Generator, get_llm
 from .guardrails import classify_question, classify_scope
-from .ingest import manifest_warnings
+from .ingest import manifest_warnings, run_ingest
 from .models import Answer, ScoredChunk, coerce_history
 from .prompts import ADVICE_REFUSAL, PII_RESPONSE, REFUSAL
 from .retriever import Retriever
@@ -135,21 +135,22 @@ def boot() -> tuple["Pipeline", list[tuple[str, str]], dict]:
     than in the UI, so a long-running app can call only Pipeline.ask and never import the
     generator, retriever, or embedder (implementation.md Phase 6).
     """
-    issues = startup_checks()
+    embedder = LocalEmbedder(model=LOCAL_DEFAULT_MODEL)
+    issues = startup_checks(build_missing_index=True, embedder=embedder)
     llm = None
     if not any(level == "error" for level, _ in issues):
         try:
             llm = get_llm()
         except ConfigurationError:
             llm = None
-    return Pipeline(llm=llm), issues, describe()
+    return Pipeline(embedder=embedder, llm=llm), issues, describe(embedder=embedder)
 
 
 def _elapsed(started: float) -> int:
     return int((time.perf_counter() - started) * 1000)
 
 
-def startup_checks() -> list[tuple[str, str]]:
+def startup_checks(*, build_missing_index: bool = False, embedder=None) -> list[tuple[str, str]]:
     """(level, message) pairs for a startup banner: 'error' blocks use, 'warning' does not."""
     from .errors import ProviderError as _ProviderError
 
@@ -174,28 +175,46 @@ def startup_checks() -> list[tuple[str, str]]:
         issues.append(("error", f"Could not open the vector index at {CONFIG.chroma_path}: {exc}"))
         return issues
     if count == 0:
-        issues.append(("error", "The vector index is empty. Build it: python -m ragchat.ingest --commit"))
+        if build_missing_index:
+            index_embedder = embedder or LocalEmbedder(model=LOCAL_DEFAULT_MODEL)
+            try:
+                run_ingest(
+                    index_embedder,
+                    docs_dir=CONFIG.docs_path,
+                    chroma_dir=CONFIG.chroma_path,
+                    verbose=False,
+                )
+                count = store.count()
+            except Exception as exc:
+                issues.append(("error", f"Could not build the local vector index from {CONFIG.docs_path}: {exc}"))
+                return issues
+            if count == 0:
+                issues.append(("error", f"Index build completed, but the vector index is still empty at {CONFIG.chroma_path}."))
+                return issues
+        else:
+            issues.append(("error", "The vector index is empty. Build it: python -m ragchat.ingest --commit"))
 
-    try:
-        get_embedder()
-    except _ProviderError as exc:
-        issues.append(("error", str(exc)))
+    if embedder is None:
+        try:
+            get_embedder()
+        except _ProviderError as exc:
+            issues.append(("error", str(exc)))
 
-    for warning in manifest_warnings():
+    for warning in manifest_warnings(expected_model=getattr(embedder, "model", None)):
         issues.append(("warning", warning))
 
     return issues
 
 
-def describe() -> dict[str, object]:
+def describe(embedder=None) -> dict[str, object]:
     """Config summary for the UI sidebar. Model names only, never keys."""
     try:
         chunk_count = VectorStore().count()
     except Exception:
         chunk_count = 0
     return {
-        "embedding model": CONFIG.EMBEDDING_MODEL,
-        "embedding backend": CONFIG.resolved_embedding_backend,
+        "embedding model": getattr(embedder, "model", CONFIG.EMBEDDING_MODEL),
+        "embedding backend": "local" if isinstance(embedder, LocalEmbedder) else CONFIG.resolved_embedding_backend,
         "llm model": CONFIG.LLM_MODEL,
         "llm backend": CONFIG.resolved_llm_backend,
         "chunk size": f"{CONFIG.CHUNK_SIZE} tokens",
