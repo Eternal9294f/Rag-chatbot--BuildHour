@@ -1,0 +1,16 @@
+# Production runtime dependencies for the RAG chatbot (Render/deployments).
+# Versions are pinned to the exact releases verified on Python 3.14 in the
+# local environment (2500+ assertions across 175 tests) for reproducibility.
+# Development-only tools (pytest) are intentionally not listed here.
+#   pydantic, python-dotenv  config and data contracts
+#   pypdf, tiktoken          corpus loading and chunking
+#   chromadb                 vector store
+#   fastembed                offline embedding backend (pulls onnxruntime)
+#   streamlit                phase-6 web UI
+pydantic==2.13.5
+python-dotenv==1.2.3
+pypdf==6.19.0
+tiktoken==0.14.0
+chromadb==1.5.9
+fastembed==0.8.1
+streamlit==1.64.0

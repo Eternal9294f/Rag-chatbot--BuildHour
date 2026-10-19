@@ -1,0 +1,17 @@
+.env
+data/chroma/
+data/manifest.json
+data/chunks.txt
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.vscode/
+.idea/
+.DS_Store
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
